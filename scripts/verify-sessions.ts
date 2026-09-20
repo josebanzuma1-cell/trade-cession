@@ -134,23 +134,23 @@ console.log("\n-- headline states real time remaining, not the configured lead -
     .find((a) => a.key.startsWith("lead:newyork"))!;
   eq("aligned poll says 15 minutes", aligned.text.includes("OPENS IN 15 MINUTES"), "true");
 
-  // A 15-minute schedule polling off-boundary at 11:37 queues the 11:45 lead
-  // moment but SENDS it at 11:37 — 23 minutes before the open, not 15.
-  const early = dueAlerts(
-    new Date("2026-09-21T11:37:00Z").getTime(),
+  // A poll arriving late inside its own bucket still sends the lead alert,
+  // but only 10 minutes remain by then and the message must say so.
+  const late = dueAlerts(
+    new Date("2026-09-21T11:50:00Z").getTime(),
     15 * 60_000,
     LEAD,
   ).find((a) => a.key.startsWith("lead:newyork"))!;
-  eq("off-boundary poll states the true gap", early.text.includes("OPENS IN 23 MINUTES"), "true");
-  eq("...and does not claim the configured lead", early.text.includes("15 MINUTES"), "false");
+  eq("late poll states the true gap", late.text.includes("OPENS IN 10 MINUTES"), "true");
+  eq("...and does not claim the configured lead", late.text.includes("15 MINUTES"), "false");
 
-  // An open alert sent a bucket early must not claim the session is open.
+  // An open alert sent slightly early must not claim the session is open.
   const premature = dueAlerts(
-    new Date("2026-09-21T11:52:00Z").getTime(),
+    new Date("2026-09-21T11:58:00Z").getTime(),
     15 * 60_000,
     LEAD,
   ).find((a) => a.key.startsWith("open:newyork"))!;
-  eq("early open alert still counts down", premature.text.includes("OPENS IN 8 MINUTES"), "true");
+  eq("early open alert still counts down", premature.text.includes("OPENS IN 2 MINUTES"), "true");
   eq("...and is not headlined IS OPEN", premature.text.includes("IS OPEN"), "false");
 
   // Polled right on the open, it reads as live.
@@ -206,6 +206,47 @@ console.log("\n-- COT sign handling --");
   eq("gold maps to the COMEX contract", INSTRUMENT_BY_ID["XAUUSD"].cot, "GOLD - COMMODITY EXCHANGE INC.");
   eq("every instrument has a COT contract", INSTRUMENTS.every(i => i.cot !== null), "true");
   eq("indices have no Asian range", INSTRUMENTS.filter(i => !i.hasAsianRange).map(i => i.id).join(","), "US30,NAS100");
+}
+
+console.log("\n-- cron drift must not shift alerts out of their bucket --");
+{
+  // The live scheduler fires a fraction of a second late (02:00:00.97,
+  // 01:45:00.52 were observed). Anchoring buckets to the poll instant made
+  // every alert land one bucket early and dropped the open alert entirely.
+  const BUCKET = 15 * 60_000, LEAD = 15 * 60_000;
+  const TOKYO_OPEN = new Date("2026-09-21T00:00:00Z").getTime();
+
+  const at = (offsetMs: number, driftMs: number) =>
+    dueAlerts(TOKYO_OPEN + offsetMs + driftMs, BUCKET, LEAD)
+      .filter((a) => a.key.includes("tokyo"))
+      .map((a) => a.key.split(":")[0] + "/" + a.text.split("\n")[0].replace(/<[^>]+>/g, ""));
+
+  // Half a second late, the canonical case.
+  eq("T-30 poll sends nothing early", at(-30 * 60_000, 500).length, 0);
+  eq("T-15 poll sends the lead alert",
+    at(-15 * 60_000, 500).join(""), "lead/🔔 TOKYO OPENS IN 15 MINUTES");
+  eq("T-0 poll sends the open alert",
+    at(0, 500).join(""), "open/🟢 TOKYO IS OPEN");
+
+  // And the same holds if the scheduler runs slightly EARLY instead.
+  eq("T-15 poll, 400ms early, still correct",
+    at(-15 * 60_000, -400).join(""), "lead/🔔 TOKYO OPENS IN 15 MINUTES");
+  eq("T-0 poll, 400ms early, still correct",
+    at(0, -400).join(""), "open/🟢 TOKYO IS OPEN");
+
+  // A full week of drifting polls: still exactly one alert each, none lost.
+  const start = new Date("2026-09-21T00:00:00Z").getTime();
+  const fired: string[] = [];
+  for (let t = start; t < start + 7 * 86_400_000; t += BUCKET) {
+    const drift = Math.floor(Math.random() * 3000) - 1000; // -1s .. +2s
+    for (const a of dueAlerts(t + drift, BUCKET, LEAD)) fired.push(a.key);
+  }
+  eq("no duplicates under drift", new Set(fired).size, fired.length);
+  const opens = upcomingEvents(start, 7 * 86_400_000)
+    .filter(e => e.kind === "open" && e.at >= start + LEAD && e.at < start + 7 * 86_400_000);
+  eq("every open still gets both alerts",
+    opens.filter(e => fired.includes(`open:${e.id}:${e.at}`) && fired.includes(`lead:${e.id}:${e.at}`)).length,
+    opens.length);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

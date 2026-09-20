@@ -103,10 +103,23 @@ export function dueAlerts(
   windowMs: number,
   leadMs: number,
 ): DueAlert[] {
-  const horizon = now + windowMs + leadMs;
+  // Buckets are anchored to absolute clock boundaries, not to the instant the
+  // poll happened to arrive.
+  //
+  // Anchoring to the poll looks equivalent and is not. A scheduler that fires
+  // half a second late makes the window [02:45:00.5, 03:00:00.5), and an alert
+  // moment at exactly 02:45:00.000 then falls just before it and lands in the
+  // previous bucket instead. Every alert shifts one bucket early and the final
+  // one — the session actually opening — is never reached at all.
+  //
+  // Rounding to the nearest boundary absorbs drift in either direction, up to
+  // half a bucket, so a poll that is a little early or a little late still
+  // resolves to the window it belongs to.
+  const bucketStart = Math.round(now / windowMs) * windowMs;
+  const horizon = bucketStart + windowMs + leadMs;
   const entries = entryInstances(now - 12 * 60 * MINUTE, horizon + 12 * 60 * MINUTE);
   const out: DueAlert[] = [];
-  const inBucket = (m: number) => m >= now && m < now + windowMs;
+  const inBucket = (m: number) => m >= bucketStart && m < bucketStart + windowMs;
 
   for (const e of upcomingEvents(now - windowMs, 3 * 86_400_000)) {
     if (e.kind !== "open") continue;
