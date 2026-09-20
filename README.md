@@ -79,12 +79,24 @@ A confirmation message should land in Telegram.
 Sign up at [cron-job.org](https://cron-job.org) (free, no card) and create a job:
 
 - **URL** — `https://<your-app>.vercel.app/api/cron?key=<your CRON_SECRET>`
-- **Schedule** — every 5 minutes
+- **Schedule** — as often as the free tier allows, up to every 5 minutes
 - **Method** — GET
 
-That is the whole scheduler. `CRON_INTERVAL_MINUTES` in your environment must
-match the interval you pick here, because the endpoint uses it to work out
-which alerts belong to the current poll.
+**`CRON_INTERVAL_MINUTES` must match the interval the job actually runs at.**
+The endpoint claims each alert to a bucket exactly that many minutes wide, so
+consecutive polls tile without overlapping or leaving a gap. Set it too low and
+the app looks less far ahead than the gap between polls, which opens a blind
+spot — alerts in it are never sent, and nothing anywhere looks broken.
+
+Free tiers often impose a longer minimum than they appear to. Verify what you
+actually got rather than what you selected: watch the deployment's runtime logs
+for two consecutive hits and measure the spacing. This deployment runs on a
+**15-minute** interval for that reason.
+
+Longer intervals work fine — a week-long simulation at 15 minutes sends every
+alert exactly once — the heads-up simply arrives between `ALERT_LEAD_MINUTES`
+and one interval earlier than that. The message states the true figure rather
+than assuming the configured lead.
 
 A GitHub Actions workflow is included at `.github/workflows/notify.yml` as a
 backup. GitHub's cron is free but queues under load and can run several minutes
@@ -100,7 +112,7 @@ use it, add `CRON_URL` and `CRON_SECRET` as repository secrets.
 | `TELEGRAM_BOT_TOKEN` | yes | — | From @BotFather. |
 | `TELEGRAM_CHAT_ID` | yes | — | Comma-separate several to alert a group. |
 | `CRON_SECRET` | strongly advised | — | Without it, `/api/cron` is open to anyone. |
-| `CRON_INTERVAL_MINUTES` | no | `5` | Must match your cron service. |
+| `CRON_INTERVAL_MINUTES` | **yes** | `5` | Must match the interval your cron actually runs at. |
 | `ALERT_LEAD_MINUTES` | no | `15` | Heads-up time before each open. |
 | `UPSTASH_REDIS_REST_URL` | no | — | Only if you ever see duplicate alerts. |
 | `UPSTASH_REDIS_REST_TOKEN` | no | — | Pairs with the above. |
