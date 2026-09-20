@@ -21,24 +21,36 @@ function windowFor(sessionOpen: number, entries: EntryInstance[]): EntryInstance
     .find((e) => Math.abs(e.startAt - sessionOpen) <= 90 * MINUTE && e.endAt > sessionOpen);
 }
 
-function leadLabel(ms: number): string {
-  const m = Math.round(ms / MINUTE);
-  return m === 1 ? "1 MINUTE" : `${m} MINUTES`;
+/**
+ * Headline phrasing, decided from the time actually remaining when the
+ * message is sent rather than from the configured lead.
+ *
+ * An alert is queued for a moment inside the current poll bucket but sent at
+ * the moment of the poll, so it can go out up to one bucket early. Trusting
+ * the configured lead would then make the message lie — claiming fifteen
+ * minutes on a fifteen-minute schedule when the real gap is nearer thirty.
+ * Under 90 seconds is treated as "now", since that is inside the noise.
+ */
+function headline(prefix: string, remainingMs: number, liveText: string): string {
+  if (remainingMs < 90 * 1000) return liveText;
+  const m = Math.round(remainingMs / MINUTE);
+  return `${prefix} ${m === 1 ? "1 MINUTE" : `${m} MINUTES`}`;
 }
 
 function sessionMessage(
   id: keyof typeof SESSION_BY_ID,
   at: number,
-  leadMs: number | null,
+  remainingMs: number,
   entries: EntryInstance[],
 ): string {
   const s = SESSION_BY_ID[id];
+  const name = esc(s.name.toUpperCase());
   const lines: string[] = [];
 
   lines.push(
-    leadMs !== null
-      ? `🔔 <b>${esc(s.name.toUpperCase())} OPENS IN ${leadLabel(leadMs)}</b>`
-      : `🟢 <b>${esc(s.name.toUpperCase())} IS OPEN</b>`,
+    remainingMs < 90 * 1000
+      ? `🟢 <b>${name} IS OPEN</b>`
+      : `🔔 <b>${headline(`${name} OPENS IN`, remainingMs, "")}</b>`,
   );
   lines.push(`<code>${formatTime(at, HOME_TZ)} EAT</code> · ${esc(s.drives)}`);
   lines.push("");
@@ -62,11 +74,9 @@ function sessionMessage(
   return lines.join("\n");
 }
 
-function overlapMessage(at: number, end: number, leadMs: number | null): string {
+function overlapMessage(at: number, end: number, remainingMs: number): string {
   return [
-    leadMs !== null
-      ? `⚡️ <b>PRIME WINDOW IN ${leadLabel(leadMs)}</b>`
-      : `⚡️ <b>PRIME WINDOW IS LIVE</b>`,
+    `⚡️ <b>${headline("PRIME WINDOW IN", remainingMs, "PRIME WINDOW IS LIVE")}</b>`,
     `<code>${formatTime(at, HOME_TZ)}–${formatTime(end, HOME_TZ)} EAT</code>`,
     "",
     "London and New York are open together — the deepest liquidity and the widest range of the day.",
@@ -106,14 +116,14 @@ export function dueAlerts(
       out.push({
         key: `lead:${e.id}:${e.at}`,
         at: e.at - leadMs,
-        text: sessionMessage(e.id, e.at, leadMs, entries),
+        text: sessionMessage(e.id, e.at, e.at - now, entries),
       });
     }
     if (inBucket(e.at)) {
       out.push({
         key: `open:${e.id}:${e.at}`,
         at: e.at,
-        text: sessionMessage(e.id, e.at, null, entries),
+        text: sessionMessage(e.id, e.at, e.at - now, entries),
       });
     }
   }
@@ -130,14 +140,14 @@ export function dueAlerts(
       out.push({
         key: `lead:overlap:${prime.start}`,
         at: prime.start - leadMs,
-        text: overlapMessage(prime.start, prime.end, leadMs),
+        text: overlapMessage(prime.start, prime.end, prime.start - now),
       });
     }
     if (inBucket(prime.start) && !covered("open")) {
       out.push({
         key: `open:overlap:${prime.start}`,
         at: prime.start,
-        text: overlapMessage(prime.start, prime.end, null),
+        text: overlapMessage(prime.start, prime.end, prime.start - now),
       });
     }
   }

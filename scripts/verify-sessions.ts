@@ -121,5 +121,41 @@ console.log("\n-- alert scheduling: one alert per event, none missed --");
   eq("lead phrasing reads cleanly", nyLead[0].text.includes("OPENS IN 15 MINUTES"), "true");
 }
 
+console.log("\n-- headline states real time remaining, not the configured lead --");
+{
+  // New York opens 12:00 UTC (15:00 EAT) on Mon 21 Sept 2026.
+  const NY_OPEN = new Date("2026-09-21T12:00:00Z").getTime();
+  const LEAD = 15 * 60_000;
+
+  // A poll aligned to the lead moment: 15 minutes really is 15 minutes.
+  const aligned = dueAlerts(NY_OPEN - LEAD, 5 * 60_000, LEAD)
+    .find((a) => a.key.startsWith("lead:newyork"))!;
+  eq("aligned poll says 15 minutes", aligned.text.includes("OPENS IN 15 MINUTES"), "true");
+
+  // A 15-minute schedule polling off-boundary at 11:37 queues the 11:45 lead
+  // moment but SENDS it at 11:37 — 23 minutes before the open, not 15.
+  const early = dueAlerts(
+    new Date("2026-09-21T11:37:00Z").getTime(),
+    15 * 60_000,
+    LEAD,
+  ).find((a) => a.key.startsWith("lead:newyork"))!;
+  eq("off-boundary poll states the true gap", early.text.includes("OPENS IN 23 MINUTES"), "true");
+  eq("...and does not claim the configured lead", early.text.includes("15 MINUTES"), "false");
+
+  // An open alert sent a bucket early must not claim the session is open.
+  const premature = dueAlerts(
+    new Date("2026-09-21T11:52:00Z").getTime(),
+    15 * 60_000,
+    LEAD,
+  ).find((a) => a.key.startsWith("open:newyork"))!;
+  eq("early open alert still counts down", premature.text.includes("OPENS IN 8 MINUTES"), "true");
+  eq("...and is not headlined IS OPEN", premature.text.includes("IS OPEN"), "false");
+
+  // Polled right on the open, it reads as live.
+  const onTime = dueAlerts(NY_OPEN, 5 * 60_000, LEAD)
+    .find((a) => a.key.startsWith("open:newyork"))!;
+  eq("on-time open alert reads IS OPEN", onTime.text.includes("IS OPEN"), "true");
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
