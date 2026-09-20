@@ -1,0 +1,27 @@
+# Free backup scheduler.
+#
+# GitHub's hosted cron is free but it queues under load, so a run can land
+# several minutes late. Use cron-job.org as the primary trigger and keep this
+# as a second pair of eyes; the lead alert and the open alert give each
+# session two chances to reach you.
+name: Session alerts
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger alert check
+        run: |
+          code=$(curl -s -o /tmp/out.json -w "%{http_code}" \
+            "${{ secrets.CRON_URL }}&key=${{ secrets.CRON_SECRET }}")
+          cat /tmp/out.json
+          echo
+          if [ "$code" -ge 400 ]; then
+            echo "::error::alert check returned HTTP $code"
+            exit 1
+          fi
