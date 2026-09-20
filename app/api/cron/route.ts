@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { dueAlerts } from "@/lib/alerts";
+import { buildContextBlock } from "@/lib/context-block";
+import { fetchLevels } from "@/lib/marketdata";
+import { fetchCot } from "@/lib/cot";
+import type { SessionId } from "@/lib/sessions";
 import { MINUTE, HOME_TZ, formatTime } from "@/lib/tz";
 import { claim, dedupeConfigured, sendTelegram, telegramConfigured } from "@/lib/telegram";
 
@@ -40,6 +44,26 @@ export async function GET(req: Request) {
 
   const due = dueAlerts(now, intervalMs, leadMs);
 
+  // Market context is a bonus on top of an alert, never a precondition for
+  // one. If Yahoo or the CFTC is slow or down, the session alert still goes
+  // out on time without it — a late alert is worse than a plain one.
+  let context: ((key: string) => string) | null = null;
+  if (due.length > 0 && !dry) {
+    try {
+      const [levels, cot] = await Promise.all([fetchLevels(now), fetchCot()]);
+      context = (key: string) => {
+        const id = key.split(":")[1] as SessionId;
+        try {
+          return buildContextBlock(id, levels, cot);
+        } catch {
+          return "";
+        }
+      };
+    } catch {
+      context = null;
+    }
+  }
+
   const sent: string[] = [];
   const skipped: string[] = [];
   const errors: string[] = [];
@@ -56,7 +80,7 @@ export async function GET(req: Request) {
         skipped.push(alert.key);
         continue;
       }
-      const res = await sendTelegram(alert.text);
+      const res = await sendTelegram(alert.text + (context?.(alert.key) ?? ""));
       if (res.ok) sent.push(alert.key);
       else errors.push(`${alert.key}: ${res.detail}`);
     }

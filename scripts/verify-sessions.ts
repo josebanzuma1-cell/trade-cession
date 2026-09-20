@@ -1,6 +1,8 @@
 import { wallToUtc, formatTime, partsInZone, HOME_TZ } from "../lib/tz";
 import { sessionWindows, overlaps, nextPrimeOverlap, activeSessions, isWeekendBreak, upcomingEvents } from "../lib/sessions";
 import { dueAlerts } from "../lib/alerts";
+import { classifySweep } from "../lib/marketdata";
+import { INSTRUMENTS, INSTRUMENT_BY_ID } from "../lib/instruments";
 
 let pass = 0, fail = 0;
 function eq(label: string, got: unknown, want: unknown) {
@@ -155,6 +157,55 @@ console.log("\n-- headline states real time remaining, not the configured lead -
   const onTime = dueAlerts(NY_OPEN, 5 * 60_000, LEAD)
     .find((a) => a.key.startsWith("open:newyork"))!;
   eq("on-time open alert reads IS OPEN", onTime.text.includes("IS OPEN"), "true");
+}
+
+console.log("\n-- sweep classification --");
+{
+  const bar = (t: number, h: number, l: number, c: number) => ({ t, o: c, h, l, c });
+  const HI = 1.1000, LO = 1.0900, FROM = 1000;
+
+  eq("nothing taken -> inside",
+    classifySweep([bar(1000, 1.0990, 1.0910, 1.0950)], HI, LO, FROM), "inside");
+
+  // Took the high and stayed above: a breakout, or a trap not yet sprung.
+  eq("through the high, holding -> swept-high",
+    classifySweep([bar(1000, 1.1030, 1.0990, 1.1025)], HI, LO, FROM), "swept-high");
+
+  // Took the high then closed back inside: the short setup.
+  eq("through the high, back inside -> reclaimed-down",
+    classifySweep([bar(1000, 1.1030, 1.0990, 1.1020), bar(2000, 1.1022, 1.0950, 1.0960)], HI, LO, FROM),
+    "reclaimed-down");
+
+  // Mirror image: the long setup.
+  eq("through the low, back inside -> reclaimed-up",
+    classifySweep([bar(1000, 1.0910, 1.0870, 1.0880), bar(2000, 1.0960, 1.0875, 1.0950)], HI, LO, FROM),
+    "reclaimed-up");
+
+  // Both sides taken: the MOST RECENT extreme decides the direction.
+  eq("low then high, back inside -> reclaimed-down",
+    classifySweep([bar(1000, 1.0950, 1.0870, 1.0930), bar(2000, 1.1040, 1.0990, 1.0950)], HI, LO, FROM),
+    "reclaimed-down");
+  eq("high then low, back inside -> reclaimed-up",
+    classifySweep([bar(1000, 1.1040, 1.0990, 1.1010), bar(2000, 1.1000, 1.0860, 1.0950)], HI, LO, FROM),
+    "reclaimed-up");
+
+  // Bars before the Asian close must not count as a sweep.
+  eq("pre-window bars ignored",
+    classifySweep([bar(500, 1.1500, 1.0500, 1.1400), bar(1000, 1.0990, 1.0910, 1.0950)], HI, LO, FROM),
+    "inside");
+}
+
+console.log("\n-- COT sign handling --");
+{
+  const jpy = INSTRUMENT_BY_ID["USDJPY"];
+  const eur = INSTRUMENT_BY_ID["EURUSD"];
+  // Yen futures are quoted inverse to USDJPY. Long yen futures means short
+  // USDJPY; reporting it unflipped would invert the read on every yen alert.
+  eq("USDJPY is marked for inversion", jpy.cotInvert, "true");
+  eq("EURUSD is not inverted", eur.cotInvert, "false");
+  eq("gold maps to the COMEX contract", INSTRUMENT_BY_ID["XAUUSD"].cot, "GOLD - COMMODITY EXCHANGE INC.");
+  eq("every instrument has a COT contract", INSTRUMENTS.every(i => i.cot !== null), "true");
+  eq("indices have no Asian range", INSTRUMENTS.filter(i => !i.hasAsianRange).map(i => i.id).join(","), "US30,NAS100");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

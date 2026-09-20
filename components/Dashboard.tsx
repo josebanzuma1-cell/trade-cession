@@ -22,6 +22,7 @@ import {
   upcomingEvents,
   type SessionId,
 } from "@/lib/sessions";
+import MarketContext from "@/components/MarketContext";
 import {
   GRADE_STYLE,
   WEEKLY_RHYTHM,
@@ -254,6 +255,9 @@ export default function Dashboard() {
           </p>
         </section>
       )}
+
+      {/* ---------- market context ---------- */}
+      <MarketContext />
 
       {/* ---------- 24h timeline ---------- */}
       <section className="panel mb-4 p-5">
