@@ -33,13 +33,12 @@ external cron service that pings an endpoint on your app. Setup is below.
 ### 1. Push to GitHub and import to Vercel
 
 ```bash
-git remote add origin https://github.com/<you>/session-clock.git
+git remote add origin https://github.com/josebanzuma1-cell/trade-cession.git
 git push -u origin main
 ```
 
 Then at [vercel.com/new](https://vercel.com/new), import the repository. Next.js
-is detected automatically — accept the defaults and deploy. You will get a URL
-like `https://session-clock-xyz.vercel.app`.
+is detected automatically — accept the defaults and deploy.
 
 The dashboard works immediately. Alerts need the next two steps.
 
