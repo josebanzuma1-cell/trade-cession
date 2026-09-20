@@ -190,6 +190,55 @@ midday.
 
 ---
 
+## Market context, and what cannot be known
+
+There is no honest way to detect institutions entering the market live on
+retail infrastructure. Forex is over-the-counter, so there is no consolidated
+volume — the "volume" on an MT4 chart is tick count from one broker, not money
+changing hands. Genuine order flow costs thousands a month and is not sold to
+retail. Anything marketed as a live "smart money" signal is inferring it from
+the same candles you already have.
+
+Two things *are* real and free, and the dashboard shows both.
+
+**Institutional positioning.** The CFTC's Commitments of Traders report is a
+legally mandated filing by every large holder of US futures. It is genuinely
+what funds hold, not an indicator. It is also **weekly and lagging** — positions
+are as of Tuesday's close, published Friday — so it describes a standing stance
+and never an entry. Futures are a proxy for spot, close enough to read a bias
+from.
+
+Yen futures are quoted inverse to USDJPY, so a net-long futures position is a
+net-short USDJPY position. That sign is flipped in
+[`lib/instruments.ts`](lib/instruments.ts) via `cotInvert`. Leaving it unflipped
+would invert the read on every yen alert, which is why it is corrected at the
+definition rather than anywhere downstream.
+
+**Price structure.** The Asian range is computed from real 15-minute candles,
+and the sweep-and-reclaim that the London window tells you to wait for is
+classified from what price actually did:
+
+| State | Meaning |
+| --- | --- |
+| `inside` | Neither side taken. The liquidity London hunts is still there. |
+| `swept-high` / `swept-low` | One side taken, price holding beyond it. Breakout or trap, undecided. |
+| `reclaimed-down` | Took the high, closed back inside — the short setup. |
+| `reclaimed-up` | Took the low, closed back inside — the long setup. |
+
+Session alerts carry these levels, so the advice arrives with the numbers
+attached rather than telling you to watch a range it never names.
+
+Context is **best-effort in the alert path**. If Yahoo or the CFTC is slow, the
+session alert still goes out on time without it — a late alert is worse than a
+plain one.
+
+Data sources: [Yahoo Finance](https://finance.yahoo.com) for prices (no key,
+unofficial endpoint, so it may change) and the
+[CFTC public reporting API](https://publicreporting.cftc.gov) for positioning.
+Neither needs an account.
+
+---
+
 ## Matching your broker
 
 Session boundaries here follow the common retail convention — 09:00–18:00 in
