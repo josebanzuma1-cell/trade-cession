@@ -23,7 +23,13 @@ export default function MarketContext() {
   useEffect(() => {
     let alive = true;
     const load = () =>
-      fetch("/api/context")
+      // no-store bypasses the browser's HTTP cache outright. Response headers
+      // alone are not enough: the platform normalises cache-control on this
+      // route, and a bare `public` still lets a browser heuristically re-serve
+      // its own stored copy for days. That had a page left open since
+      // September reporting that week's COT figures as current. The CDN still
+      // absorbs the load, so this costs a conditional request, not a refetch.
+      fetch("/api/context", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
         .then((d: Payload) => alive && setData(d))
         .catch(() => alive && setFailed(true));
