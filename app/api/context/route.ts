@@ -19,7 +19,13 @@ export async function GET() {
     { levels, cot, asOf: Date.now() },
     {
       headers: {
-        "cache-control": "public, s-maxage=300, stale-while-revalidate=600",
+        // max-age=0 is load-bearing. Without an explicit browser lifetime a
+        // browser applies heuristic caching to a 200 that only carries
+        // s-maxage, and will happily re-serve its own stored copy for days.
+        // That showed a six-week-old COT report as if it were current, which
+        // on a dashboard about institutional positioning is worse than
+        // showing nothing. The CDN still absorbs the load via s-maxage.
+        "cache-control": "public, max-age=0, s-maxage=300, stale-while-revalidate=600",
       },
     },
   );
